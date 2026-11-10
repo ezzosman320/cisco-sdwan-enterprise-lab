@@ -15,6 +15,7 @@ A hands-on Cisco SD-WAN lab built in EVE-NG. One HQ and three branch sites are c
 - HQ redundancy at the edge and core layers
 - NAT and DHCP for site connectivity
 - Central management with vManage feature templates, and performance monitoring
+- A Cowrie honeypot with ELK log analysis on a separate Ubuntu Server VM, connected to the lab
 
 ## Components
 
@@ -28,6 +29,7 @@ A hands-on Cisco SD-WAN lab built in EVE-NG. One HQ and three branch sites are c
 | INET_ISP, MPLS_ISP | Two transports connecting all sites |
 | SW16, SW17, SW20 + access switches | HQ switching, with client hosts behind the access switches |
 | ASA1 | Firewall at HQ |
+| Ubuntu Server VM | Cowrie honeypot and ELK, outside EVE-NG, connected through a bridged NIC |
 
 Controllers use the system IP range 10.100.0.0/24. Each branch runs BGP (AS 65003, 65004 and 65005) and OSPF Area 0.
 
@@ -63,6 +65,43 @@ vManage monitoring and tunnel quality (latency, loss and jitter between sites):
 ![vManage monitoring, second view](images/vmanage-monitoring-2.png)
 
 ![Latency, loss and jitter](images/vmanage-latency-loss-jitter.png)
+
+## Security: Cowrie honeypot and ELK
+
+A Cowrie SSH honeypot and an ELK stack run on a separate Ubuntu Server VM. The VM uses a bridged NIC, so it can reach the lab, and the lab can reach it. The honeypot sits in its own VPN (VPN 102), separated from the other VPNs.
+
+| Item | Detail |
+|---|---|
+| Host | Ubuntu Server 24.10 VM, outside EVE-NG |
+| Network | Bridged NIC |
+| Honeypot | Cowrie, SSH trap port 2222 |
+| Placement | Its own separate VPN (VPN 102) |
+| Exposure | Port 2222 is open on the vEdge, and connections to it are forwarded directly to the honeypot in VPN 102 |
+| Log pipeline | Cowrie logs, Logstash, Elasticsearch, Kibana |
+
+The honeypot in the lab topology:
+
+![Honeypot in the topology](images/honeypot-topology.png)
+
+### Test scenario
+
+The test simulated an attacker's point of view:
+
+1. The attacker scans the vEdge for open ports and finds port 2222 open.
+2. A service scan shows that it runs SSH.
+3. The attacker assumes a security administrator moved SSH off the default port to hide it, which makes it look like a valuable target, and tries to log in.
+
+The connection was forwarded straight to the honeypot in VPN 102. Cowrie accepted the login, emulated a Linux shell, and logged the session and the commands that were typed.
+
+![Cowrie log of the login test](images/cowrie-login-test.png)
+
+![Cowrie output after the test](images/cowrie-after-test.png)
+
+### Log analysis in Kibana
+
+Logstash forwards the Cowrie events to Elasticsearch, and the captured events were visualized in Kibana.
+
+![Kibana view of Cowrie events](images/kibana-cowrie-output.png)
 
 ## Verification on vEdge1
 
@@ -109,6 +148,7 @@ System and VPN 0 configuration on vEdge1 (sensitive values removed).
 - Integrating the overlay with OSPF and BGP
 - Building device configuration with vManage feature templates
 - Checking the fabric with BFD, OMP and per-VPN routing tables
+- Setting up a honeypot, testing it, and reading its logs in ELK
 
 ## Related work
 
