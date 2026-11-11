@@ -83,6 +83,22 @@ The honeypot in the lab topology:
 
 ![Honeypot in the topology](images/honeypot-topology.png)
 
+### Services
+
+Cowrie starting and running on the Ubuntu VM:
+
+![Cowrie start](images/cowrie-start.png)
+
+![Cowrie status](images/cowrie-status.png)
+
+The ELK services running on the same VM:
+
+![Elasticsearch status](images/elasticsearch-status.png)
+
+![Logstash status](images/logstash-status.png)
+
+![Kibana status](images/kibana-status.png)
+
 ### Test scenario
 
 The test simulated an attacker's point of view:
@@ -157,4 +173,4 @@ Research paper: *Integrated SD-WAN Framework with Cowrie Honeypot, ELK, and Zabb
 ## Author
 
 Ezzaldien Osman, Junior Network Engineer
-LinkedIn: [linkedin.com/in/ezzaldeen-osman-mohamed](https://linkedin.com/in/ezzaldeen-osman-mohamed)
+LinkedIn: [linkedin.com/in/ezzaldeen-osman-mohamed-3b3a2a259](https://linkedin.com/in/ezzaldeen-osman-mohamed-3b3a2a259)
