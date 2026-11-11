@@ -1,23 +1,38 @@
-# Cisco SD-WAN Enterprise Lab
+# Secure & Monitored Cisco SD-WAN Enterprise Lab
 
-A hands-on Cisco SD-WAN lab built in EVE-NG. One HQ and three branch sites are connected over Internet and MPLS transports, with redundancy at HQ, OSPF and BGP toward the LANs, and NAT/DHCP for connectivity.
+**An SD-WAN fabric that does more than connect sites: it detects attackers and watches every device.**
 
-> This is a lab environment built for learning and for a research paper (under review). It is not a production deployment.
+I built a Cisco SD-WAN network in EVE-NG (1 HQ + 3 branches over Internet and MPLS), then closed the two gaps that SD-WAN alone leaves open: **what attackers do once they find you**, and **the health of the devices vManage cannot see**.
+
+> A lab environment, built for learning and for a research paper (under review). It is not a production deployment.
 
 ![EVE-NG topology](images/topology-eve.png)
 
-## What this lab covers
+## At a glance
 
-- A complete Cisco SD-WAN fabric: vManage, vSmart, vBond and 5 vEdge routers (2 at HQ, 3 at branches)
-- Two transports: Internet (INET_ISP) and MPLS (MPLS_ISP)
-- OMP as the overlay routing protocol
-- OSPF between routers and the L3 switches behind the edges, and BGP at the branch sites
-- HQ redundancy at the edge and core layers
-- NAT and DHCP for site connectivity
-- Central management with vManage feature templates, and performance monitoring
-- A Cowrie honeypot with ELK log analysis on a separate Ubuntu Server VM, connected to the lab
+| | |
+|---|---|
+| **Fabric** | vManage, vSmart, vBond + 5 vEdge routers (2 at HQ, 3 at branches) |
+| **Transports** | Internet (INET_ISP) and MPLS (MPLS_ISP) |
+| **Routing** | OMP overlay, OSPF behind the edges, BGP at the branches |
+| **High availability** | VRRP between the HQ vEdges, HSRP between the HQ core switches |
+| **Security add-on** | Cowrie honeypot + ELK, isolated in its own VPN (VPN 102) |
+| **Monitoring add-on** | Zabbix on a physical Raspberry Pi (a real, low-cost solution), SNMP monitoring of routers and switches |
 
-## Components
+## Why I went beyond a basic SD-WAN lab
+
+A working SD-WAN lab is a good start. But I asked what it still cannot do:
+
+| The gap | Why the SD-WAN does not solve it | What I added |
+|---|---|---|
+| **Security visibility** | The vEdge controls and encrypts traffic, but it does not show *who is probing the network or what an attacker does after getting in* | **Cowrie honeypot + ELK**: a deception layer that records attacker behavior, with ELK replacing log reading in the shell |
+| **Device monitoring** | vManage monitors the SD-WAN edges, but not the LAN switches and traditional routers behind them | **Zabbix + SNMP**: one place to watch routers and switches |
+
+Everything below is built around those two ideas.
+
+## 1. The SD-WAN fabric
+
+![vManage dashboard](images/vmanage-dashboard.png)
 
 | Component | Role |
 |---|---|
@@ -26,14 +41,13 @@ A hands-on Cisco SD-WAN lab built in EVE-NG. One HQ and three branch sites are c
 | vBond | Orchestrator, first contact for edges |
 | vEdge1, vEdge2 | HQ edges (redundant pair) |
 | vEdge3, vEdge4, vEdge5 | Branch edges, each with a branch router (IOS13, IOS14, IOS15) |
-| INET_ISP, MPLS_ISP | Two transports connecting all sites |
+| INET_ISP, MPLS_ISP | The two transports connecting all sites |
 | SW16, SW17, SW20 + access switches | HQ switching, with client hosts behind the access switches |
 | ASA1 | Firewall at HQ |
-| Ubuntu Server VM | Cowrie honeypot and ELK, outside EVE-NG, connected through a bridged NIC |
 
 Controllers use the system IP range 10.100.0.0/24. Each branch runs BGP (AS 65003, 65004 and 65005) and OSPF Area 0.
 
-## Protocols and features
+### Protocols and design
 
 | Layer | Technology | Where |
 |---|---|---|
@@ -44,21 +58,13 @@ Controllers use the system IP range 10.100.0.0/24. Each branch runs BGP (AS 6500
 | Core redundancy | HSRP | Between SW16 and SW20 at HQ |
 | Services | NAT, DHCP | Site connectivity and Internet access |
 
-## Management with vManage
-
-The fabric is managed centrally from vManage. The dashboard shows the controllers and edges, and device configuration is built with feature templates.
-
-![vManage dashboard](images/vmanage-dashboard.png)
+Devices are configured from vManage with feature templates:
 
 ![vManage feature templates](images/vmanage-feature-templates.png)
 
-The SD-WAN topology as seen by vManage:
+The SD-WAN topology as vManage sees it, and its performance monitoring (tunnel latency, loss and jitter):
 
 ![Topology on vManage](images/topology-vmanage.png)
-
-## Monitoring
-
-vManage monitoring and tunnel quality (latency, loss and jitter between sites):
 
 ![vManage monitoring](images/vmanage-monitoring.png)
 
@@ -66,32 +72,29 @@ vManage monitoring and tunnel quality (latency, loss and jitter between sites):
 
 ![Latency, loss and jitter](images/vmanage-latency-loss-jitter.png)
 
-## Security: Cowrie honeypot and ELK
+## 2. Security layer: a honeypot the vEdge cannot be
 
-A Cowrie SSH honeypot and an ELK stack run on a separate Ubuntu Server VM. The VM uses a bridged NIC, so it can reach the lab, and the lab can reach it. The honeypot sits in its own VPN (VPN 102), separated from the other VPNs.
+A vEdge decides what traffic is allowed. A honeypot answers a different question: **what do attackers actually do when they get in?** So I added a Cowrie SSH honeypot with an ELK stack, to turn attacks into data.
+
+**Why ELK:** reading raw logs in the shell is slow and out of date. Scrolling through text files makes it hard to see patterns. ELK collects the logs and makes them searchable and visual, so monitoring becomes fast and clear.
 
 | Item | Detail |
 |---|---|
-| Host | Ubuntu Server 24.10 VM, outside EVE-NG |
-| Network | Bridged NIC |
+| Host | Ubuntu Server 24.10 VM, outside EVE-NG, bridged NIC |
 | Honeypot | Cowrie, SSH trap port 2222 |
-| Placement | Its own separate VPN (VPN 102) |
+| Isolation | Its own separate VPN (VPN 102) |
 | Exposure | Port 2222 is open on the vEdge, and connections to it are forwarded directly to the honeypot in VPN 102 |
-| Log pipeline | Cowrie logs, Logstash, Elasticsearch, Kibana |
+| Log pipeline | Cowrie, Logstash, Elasticsearch, Kibana |
 
-The honeypot in the lab topology:
+**Design decision:** the honeypot lives in its own VPN, so even a successful attacker is kept away from the other VPNs.
 
 ![Honeypot in the topology](images/honeypot-topology.png)
 
-### Services
-
-Cowrie starting and running on the Ubuntu VM:
+### The full stack is running
 
 ![Cowrie start](images/cowrie-start.png)
 
 ![Cowrie status](images/cowrie-status.png)
-
-The ELK services running on the same VM:
 
 ![Elasticsearch status](images/elasticsearch-status.png)
 
@@ -99,37 +102,74 @@ The ELK services running on the same VM:
 
 ![Kibana status](images/kibana-status.png)
 
-### Test scenario
+### Attack simulation
 
-The test simulated an attacker's point of view:
+I tested it from an attacker's point of view:
 
-1. The attacker scans the vEdge for open ports and finds port 2222 open.
-2. A service scan shows that it runs SSH.
-3. The attacker assumes a security administrator moved SSH off the default port to hide it, which makes it look like a valuable target, and tries to log in.
+1. **Scan:** the attacker scans the vEdge for open ports and finds port 2222.
+2. **Identify:** a service scan shows it runs SSH.
+3. **Assume:** the attacker thinks an administrator moved SSH off the default port to hide it, which makes it look like a valuable target.
+4. **Attack:** the attacker logs in.
 
-The connection was forwarded straight to the honeypot in VPN 102. Cowrie accepted the login, emulated a Linux shell, and logged the session and the commands that were typed.
+The connection was forwarded straight to the honeypot in VPN 102. Cowrie accepted the login, emulated a Linux shell, and logged the session and every command typed.
 
 ![Cowrie log of the login test](images/cowrie-login-test.png)
 
 ![Cowrie output after the test](images/cowrie-after-test.png)
 
-### Log analysis in Kibana
+### Turning logs into insight
 
-Logstash forwards the Cowrie events to Elasticsearch, and the captured events were visualized in Kibana.
+Instead of reading raw logs line by line in the shell, Logstash forwards the events to Elasticsearch, and Kibana visualizes them.
 
 ![Kibana view of Cowrie events](images/kibana-cowrie-output.png)
 
+**Result:** an attack that a firewall would only block or allow becomes a recorded, searchable event.
+
+## 3. Monitoring layer: seeing what vManage cannot
+
+vManage shows the health of the SD-WAN edges. It does not show the LAN switches and traditional routers behind them. I added **Zabbix on a physical Raspberry Pi** to monitor those devices over **SNMP**, so the whole network is visible in one place.
+
+**Why a Raspberry Pi:** it is a real hardware solution, not just another VM, and it is cheap. A small business can run network monitoring on a device that costs very little and uses almost no power.
+
+| Item | Detail |
+|---|---|
+| Server | Zabbix on a physical Raspberry Pi (real hardware, low cost), bridged NIC |
+| Reach | EVE-NG, the Ubuntu server and the Pi can all reach each other |
+| Method | SNMP, covering most of the routers and switches in the lab |
+| Extra nodes | Additional servers added as nodes in EVE-NG |
+| Alerts | Notifications delivered to a phone through Telegram |
+
+![Zabbix dashboard](images/zabbix-dashboard.png)
+
+### Monitored hosts
+
+![Zabbix hosts](images/zabbix-hosts.png)
+
+### Graphs
+
+Interface traffic on a core switch (SW20) and an access switch (Switch12), and the CPU of the Raspberry Pi itself:
+
+![SW20 interface traffic](images/sw20-interface-g0-0-traffic.png)
+
+![Switch12 interface traffic](images/access-sw12-interface-traffic.png)
+
+![Raspberry Pi CPU](images/raspberry-pi-cpu.jpg)
+
+### Alert notification
+
+![Telegram notification](images/telegram-notification.jpg)
+
+**Result:** switches and routers that vManage does not cover are monitored, graphed, and able to send me an alert.
+
 ## Verification on vEdge1
 
-### BFD sessions
+The overlay and routing checks on vEdge1.
 
-`show bfd sessions` confirms the data-plane tunnels between sites are up.
+**BFD sessions:** the data-plane tunnels between sites are up.
 
 ![BFD sessions](images/bfd-sessions.png)
 
-### Routing tables per VPN
-
-Routes on vEdge1 for the transport VPN (VPN 0) and the service VPNs (VPN 1, 100, 101 and 102).
+**Routing tables per VPN:** the transport VPN (VPN 0) and the service VPNs (VPN 1, 100, 101 and 102).
 
 ![VPN 0 routes](images/vedge1-routes-vpn0.png)
 
@@ -141,13 +181,20 @@ Routes on vEdge1 for the transport VPN (VPN 0) and the service VPNs (VPN 1, 100,
 
 ![VPN 102 routes](images/vedge1-routes-vpn102.png)
 
-### Configuration excerpts
-
-System and VPN 0 configuration on vEdge1 (sensitive values removed).
+**Configuration excerpts** (sensitive values removed):
 
 ![System configuration](images/vedge1-run-system.png)
 
 ![VPN 0 configuration](images/vedge1-run-vpn0.png)
+
+## Skills demonstrated
+
+- **SD-WAN:** deploying and operating a full Cisco SD-WAN fabric with vManage templates
+- **Routing and switching:** OMP, OSPF, BGP, VRRP, HSRP, NAT, DHCP, VLANs
+- **Network security:** deploying a honeypot, isolating it in its own VPN, and analyzing attack logs in ELK
+- **Monitoring:** Zabbix with SNMP, graphs and alerting
+- **Troubleshooting:** verifying the network with BFD, OMP and per-VPN routing tables
+- **Design thinking:** finding the gaps in a design and closing them
 
 ## Repository structure
 
@@ -158,19 +205,12 @@ System and VPN 0 configuration on vEdge1 (sensitive values removed).
 └── Docs/      # presentation and supporting documents
 ```
 
-## What I learned
-
-- How the SD-WAN control plane (vBond, vSmart, vManage) forms and how OMP distributes routes
-- Integrating the overlay with OSPF and BGP
-- Building device configuration with vManage feature templates
-- Checking the fabric with BFD, OMP and per-VPN routing tables
-- Setting up a honeypot, testing it, and reading its logs in ELK
-
 ## Related work
 
-Research paper: *Integrated SD-WAN Framework with Cowrie Honeypot, ELK, and Zabbix for Network Orchestration, Threat Detection, and IoT Monitoring*, submitted to *Scientific Reports* (under review).
+- Research paper: *Integrated SD-WAN Framework with Cowrie Honeypot, ELK, and Zabbix for Network Orchestration, Threat Detection, and IoT Monitoring*, submitted to *Scientific Reports* (under review).
+- Another project: an Ansible lab that automates the configuration of a Cisco C8000V.
 
 ## Author
 
 Ezzaldien Osman, Junior Network Engineer
-LinkedIn: [linkedin.com/in/ezzaldeen-osman-mohamed-3b3a2a259](https://linkedin.com/in/ezzaldeen-osman-mohamed-3b3a2a259)
+LinkedIn: [linkedin.com/in/ezzaldeen-osman-mohamed](https://linkedin.com/in/ezzaldeen-osman-mohamed)
