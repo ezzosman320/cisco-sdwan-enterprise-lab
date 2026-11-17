@@ -6,7 +6,7 @@ I built a Cisco SD-WAN network in EVE-NG (1 HQ + 3 branches over Internet and MP
 
 > A lab environment, built for learning and for a research paper (under review). It is not a production deployment.
 
-![EVE-NG topology](images/topology-eve.png)
+![EVE-NG topology](images/topology-eve-ng.png)
 
 ## At a glance
 
